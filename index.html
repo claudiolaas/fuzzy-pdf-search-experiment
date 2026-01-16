@@ -709,8 +709,12 @@
       });
     });
 
-    // Initial state
-    showResult('Load a PDF file to begin searching.', 'info');
+    // Initial state - auto-load demo PDF
+    (async () => {
+      searchInput.value = 'westeuropa 8.9';
+      await loadPDF('./q3-zwischenbericht-2025-volkswagen-group.pdf', 'VW Q3 Zwischenbericht 2025');
+      performSearch();
+    })();
   </script>
 </body>
 </html>
