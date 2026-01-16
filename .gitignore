@@ -1,0 +1,13 @@
+# PDF.js distribution (use CDN instead)
+pdfjs-*/
+
+# Test PDFs
+*.pdf
+
+# OS files
+.DS_Store
+
+# Editor files
+.idea/
+.vscode/
+*.swp

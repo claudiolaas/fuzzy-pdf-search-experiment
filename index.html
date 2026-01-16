@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PDF.js Fuzzy Search Experiment</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      color: #333;
+      margin-bottom: 10px;
+    }
+
+    .description {
+      color: #666;
+      margin-bottom: 20px;
+    }
+
+    .controls {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+
+    .control-row {
+      display: flex;
+      gap: 15px;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      margin-bottom: 15px;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .control-group.grow {
+      flex: 1;
+      min-width: 200px;
+    }
+
+    label {
+      font-size: 14px;
+      font-weight: 500;
+      color: #555;
+    }
+
+    input[type="text"], input[type="file"], select {
+      padding: 10px 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+
+    input[type="text"]:focus, select:focus {
+      outline: none;
+      border-color: #0066cc;
+      box-shadow: 0 0 0 3px rgba(0,102,204,0.1);
+    }
+
+    button {
+      padding: 10px 20px;
+      background: #0066cc;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    button:hover {
+      background: #0055aa;
+    }
+
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+
+    button.secondary {
+      background: #666;
+    }
+
+    button.secondary:hover {
+      background: #555;
+    }
+
+    .results {
+      background: white;
+      padding: 15px 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+      font-family: 'SF Mono', Monaco, monospace;
+      font-size: 13px;
+    }
+
+    .results.success {
+      border-left: 4px solid #28a745;
+    }
+
+    .results.error {
+      border-left: 4px solid #dc3545;
+    }
+
+    .results.info {
+      border-left: 4px solid #17a2b8;
+    }
+
+    .results pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .pdf-container {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+
+    .pdf-header {
+      background: #444;
+      color: white;
+      padding: 10px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .page-nav {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .page-nav button {
+      padding: 5px 15px;
+      background: #666;
+    }
+
+    .page-nav button:hover {
+      background: #555;
+    }
+
+    .page-info {
+      font-size: 14px;
+    }
+
+    #pdf-viewer {
+      padding: 20px;
+      display: flex;
+      justify-content: center;
+      background: #888;
+      min-height: 600px;
+    }
+
+    #page-container {
+      position: relative;
+      background: white;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+
+    #pdf-canvas {
+      display: block;
+    }
+
+    #text-layer {
+      position: absolute;
+      left: 0;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      overflow: hidden;
+      opacity: 0.2;
+      line-height: 1.0;
+    }
+
+    #text-layer > span {
+      color: transparent;
+      position: absolute;
+      white-space: pre;
+      transform-origin: 0% 0%;
+    }
+
+    /* Highlight overlay layer - sits behind text layer */
+    #highlight-layer {
+      position: absolute;
+      left: 0;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      pointer-events: none;
+    }
+
+    #highlight-layer .highlight-rect {
+      position: absolute;
+      background-color: rgba(255, 220, 0, 0.6);
+      border-radius: 8px;
+      mix-blend-mode: multiply;
+      box-shadow: 0 0 20px 8px rgba(255, 180, 0, 0.4);
+    }
+
+    /* Legacy inline highlight (fallback) */
+    .fuzzy-highlight {
+      background-color: #ffff00;
+      color: #000 !important;
+      padding: 2px 0;
+      border-radius: 2px;
+    }
+
+    /* Make text layer visible for debugging */
+    .debug-mode #text-layer {
+      opacity: 1;
+      background: rgba(255, 255, 255, 0.9);
+    }
+
+    .debug-mode #text-layer > span {
+      color: #333;
+      background: rgba(200, 220, 255, 0.3);
+      border: 1px solid rgba(0, 100, 200, 0.2);
+    }
+
+    /* Test cases panel */
+    .test-cases {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin-top: 20px;
+    }
+
+    .test-cases h3 {
+      margin-top: 0;
+      color: #333;
+    }
+
+    .test-case {
+      padding: 10px;
+      margin: 5px 0;
+      background: #f8f9fa;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .test-case:hover {
+      background: #e9ecef;
+    }
+
+    .test-case code {
+      background: #fff;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>PDF.js Fuzzy Search Experiment</h1>
+    <p class="description">
+      Test wildcard regex matching to find text with tolerance for line breaks, extra whitespace, and hidden characters.
+    </p>
+
+    <div class="controls">
+      <div class="control-row">
+        <div class="control-group">
+          <label for="pdf-file">PDF File</label>
+          <input type="file" id="pdf-file" accept=".pdf">
+        </div>
+        <div class="control-group">
+          <label>&nbsp;</label>
+          <button id="load-sample" class="secondary">Load Sample PDF</button>
+        </div>
+      </div>
+
+      <div class="control-row">
+        <div class="control-group grow">
+          <label for="search-query">Search Query</label>
+          <input type="text" id="search-query" placeholder="Enter text to search...">
+        </div>
+        <div class="control-group">
+          <label for="search-mode">Mode</label>
+          <select id="search-mode">
+            <option value="whitespace-only">Whitespace Only</option>
+            <option value="intra-word" selected>Intra-word Flex (Recommended)</option>
+            <option value="intra-word-hyphen">Intra-word + Hyphen</option>
+            <option value="full">Full Flex</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label>&nbsp;</label>
+          <button id="search-btn" disabled>Search</button>
+        </div>
+        <div class="control-group">
+          <label>&nbsp;</label>
+          <button id="clear-btn" class="secondary" disabled>Clear</button>
+        </div>
+      </div>
+
+      <div class="control-row">
+        <div class="control-group">
+          <label>
+            <input type="checkbox" id="debug-mode"> Debug Mode (show text layer)
+          </label>
+        </div>
+        <div class="control-group">
+          <label>
+            <input type="checkbox" id="show-pattern"> Show Generated Pattern
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div id="results" class="results info" style="display: none;">
+      <pre id="results-text"></pre>
+    </div>
+
+    <div class="pdf-container">
+      <div class="pdf-header">
+        <span id="pdf-name">No PDF loaded</span>
+        <div class="page-nav">
+          <button id="prev-page" disabled>← Prev</button>
+          <span class="page-info">Page <span id="current-page">0</span> of <span id="total-pages">0</span></span>
+          <button id="next-page" disabled>Next →</button>
+        </div>
+      </div>
+      <div id="pdf-viewer">
+        <div id="page-container">
+          <canvas id="pdf-canvas"></canvas>
+          <div id="highlight-layer"></div>
+          <div id="text-layer"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="test-cases">
+      <h3>Quick Test Queries</h3>
+      <p style="color: #666; font-size: 14px; margin-top: 0;">
+        Click a test case to populate the search box. These are designed for the sample PDF.
+      </p>
+      <div class="test-case" data-query="Trace-based">
+        <strong>Basic:</strong> <code>"Trace-based"</code> — Simple hyphenated word
+      </div>
+      <div class="test-case" data-query="just-in-time compilation">
+        <strong>Multi-word:</strong> <code>"just-in-time compilation"</code> — Multiple words with hyphen
+      </div>
+      <div class="test-case" data-query="Mozilla Firefox">
+        <strong>Case test:</strong> <code>"Mozilla Firefox"</code> — Proper nouns
+      </div>
+      <div class="test-case" data-query="dynamic languages">
+        <strong>Cross-line:</strong> <code>"dynamic languages"</code> — May span lines
+      </div>
+      <div class="test-case" data-query="native code">
+        <strong>Common phrase:</strong> <code>"native code"</code> — Appears multiple times
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    // Import PDF.js from CDN
+    import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.9.155/pdf.min.mjs';
+
+    // Set worker path
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.9.155/pdf.worker.min.mjs';
+
+    // Import our fuzzy search module
+    import './fuzzy-search.js';
+    const FuzzySearch = window.FuzzyPDFSearch;
+
+    // State
+    let pdfDoc = null;
+    let currentPage = 1;
+    let currentTextContent = null;
+    let currentItems = null;
+    let scale = 1.5;
+
+    // DOM elements
+    const pdfFileInput = document.getElementById('pdf-file');
+    const loadSampleBtn = document.getElementById('load-sample');
+    const searchInput = document.getElementById('search-query');
+    const searchModeSelect = document.getElementById('search-mode');
+    const searchBtn = document.getElementById('search-btn');
+    const clearBtn = document.getElementById('clear-btn');
+    const debugCheckbox = document.getElementById('debug-mode');
+    const showPatternCheckbox = document.getElementById('show-pattern');
+    const resultsDiv = document.getElementById('results');
+    const resultsText = document.getElementById('results-text');
+    const pdfNameSpan = document.getElementById('pdf-name');
+    const currentPageSpan = document.getElementById('current-page');
+    const totalPagesSpan = document.getElementById('total-pages');
+    const prevPageBtn = document.getElementById('prev-page');
+    const nextPageBtn = document.getElementById('next-page');
+    const canvas = document.getElementById('pdf-canvas');
+    const textLayer = document.getElementById('text-layer');
+    const highlightLayer = document.getElementById('highlight-layer');
+    const ctx = canvas.getContext('2d');
+    let currentViewport = null;
+
+    // Show results
+    function showResult(message, type = 'info') {
+      resultsDiv.style.display = 'block';
+      resultsDiv.className = `results ${type}`;
+      resultsText.textContent = message;
+    }
+
+    // Render a page
+    async function renderPage(pageNum) {
+      if (!pdfDoc) return;
+
+      const page = await pdfDoc.getPage(pageNum);
+      const viewport = page.getViewport({ scale });
+
+      // Set canvas dimensions
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
+
+      // Render PDF page
+      await page.render({
+        canvasContext: ctx,
+        viewport: viewport
+      }).promise;
+
+      // Get text content
+      currentTextContent = await page.getTextContent();
+      currentItems = currentTextContent.items;
+
+      // Store viewport for highlight calculations
+      currentViewport = viewport;
+
+      // Clear and size layers
+      textLayer.innerHTML = '';
+      highlightLayer.innerHTML = '';
+      textLayer.style.width = `${viewport.width}px`;
+      textLayer.style.height = `${viewport.height}px`;
+      highlightLayer.style.width = `${viewport.width}px`;
+      highlightLayer.style.height = `${viewport.height}px`;
+
+      for (let i = 0; i < currentItems.length; i++) {
+        const item = currentItems[i];
+        if (!item.str) continue;
+
+        const span = document.createElement('span');
+        span.textContent = item.str;
+        span.dataset.itemIndex = i; // Track original item index
+
+        // Position the span using transform
+        const tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
+
+        const fontHeight = Math.sqrt((tx[2] * tx[2]) + (tx[3] * tx[3]));
+        const angle = Math.atan2(tx[1], tx[0]);
+
+        span.style.left = `${tx[4]}px`;
+        span.style.top = `${tx[5] - fontHeight}px`;
+        span.style.fontSize = `${fontHeight}px`;
+        span.style.fontFamily = item.fontName || 'sans-serif';
+
+        if (angle !== 0) {
+          span.style.transform = `rotate(${angle}rad)`;
+        }
+
+        textLayer.appendChild(span);
+      }
+
+      // Update page info
+      currentPageSpan.textContent = pageNum;
+      currentPage = pageNum;
+
+      // Update nav buttons
+      prevPageBtn.disabled = pageNum <= 1;
+      nextPageBtn.disabled = pageNum >= pdfDoc.numPages;
+
+      // Enable search
+      searchBtn.disabled = false;
+      clearBtn.disabled = false;
+    }
+
+    // Load PDF from URL
+    async function loadPDF(url, name) {
+      try {
+        showResult('Loading PDF...', 'info');
+        pdfDoc = await pdfjsLib.getDocument(url).promise;
+        pdfNameSpan.textContent = name;
+        totalPagesSpan.textContent = pdfDoc.numPages;
+        await renderPage(1);
+        showResult(`Loaded "${name}" (${pdfDoc.numPages} pages)`, 'success');
+      } catch (err) {
+        console.error('Error loading PDF:', err);
+        showResult(`Error loading PDF: ${err.message}`, 'error');
+      }
+    }
+
+    // Load PDF from file
+    async function loadPDFFromFile(file) {
+      const arrayBuffer = await file.arrayBuffer();
+      const typedArray = new Uint8Array(arrayBuffer);
+      await loadPDF({ data: typedArray }, file.name);
+    }
+
+    // Perform search across all pages
+    async function performSearch() {
+      const query = searchInput.value.trim();
+      if (!query) {
+        showResult('Please enter a search query', 'error');
+        return;
+      }
+
+      if (!pdfDoc) {
+        showResult('No PDF loaded', 'error');
+        return;
+      }
+
+      const mode = searchModeSelect.value;
+      const showPattern = showPatternCheckbox.checked;
+
+      try {
+        showResult(`Searching all ${pdfDoc.numPages} pages...`, 'info');
+
+        // Search through all pages
+        let foundPage = null;
+        let foundMatch = null;
+        let foundItems = null;
+        let foundItemRanges = null;
+
+        for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+          const page = await pdfDoc.getPage(pageNum);
+          const textContent = await page.getTextContent();
+          const items = textContent.items;
+
+          const { pageText, itemRanges } = FuzzySearch.buildSearchableText(items);
+          const match = FuzzySearch.findMatch(pageText, query, { mode });
+
+          if (match) {
+            foundPage = pageNum;
+            foundMatch = match;
+            foundItems = items;
+            foundItemRanges = itemRanges;
+            break;
+          }
+        }
+
+        // Generate pattern (for display)
+        const pattern = FuzzySearch.buildFlexiblePattern(query, { mode });
+
+        // Use found match or current page result
+        const match = foundMatch;
+
+        let resultMessage = '';
+
+        if (showPattern) {
+          resultMessage += `Pattern: ${pattern}\n\n`;
+        }
+
+        if (match && foundPage) {
+          // Navigate to the page with the match
+          if (currentPage !== foundPage) {
+            await renderPage(foundPage);
+          }
+
+          // Map to segments using the found data
+          const segments = FuzzySearch.matchToItemSegments(foundItemRanges, match.start, match.end);
+
+          // Clear previous highlights
+          highlightLayer.innerHTML = '';
+
+          // Create overlay highlights for each segment
+          // First, build a map of itemIndex -> span for lookup
+          const spanMap = new Map();
+          textLayer.querySelectorAll('span').forEach(span => {
+            const idx = parseInt(span.dataset.itemIndex, 10);
+            if (!isNaN(idx)) spanMap.set(idx, span);
+          });
+
+          for (const seg of segments) {
+            const item = foundItems[seg.itemIndex];
+            if (!item || !item.transform) continue;
+
+            const span = spanMap.get(seg.itemIndex);
+            const fullText = item.str || '';
+
+            // Get item's transform in viewport coordinates
+            const tx = pdfjsLib.Util.transform(currentViewport.transform, item.transform);
+            const fontHeight = Math.sqrt((tx[2] * tx[2]) + (tx[3] * tx[3]));
+
+            // Calculate width - prefer span's actual rendered width, fallback to item.width
+            let totalWidth;
+            if (span) {
+              // Use the actual rendered span width
+              totalWidth = span.getBoundingClientRect().width;
+            } else if (item.width) {
+              // item.width is in text space, scale it
+              totalWidth = item.width * currentViewport.scale;
+            } else {
+              // Estimate based on font size and character count
+              totalWidth = fontHeight * 0.6 * fullText.length;
+            }
+
+            const charWidth = totalWidth / fullText.length;
+
+            // Calculate the highlighted portion's position
+            const startX = tx[4] + (seg.startInItem * charWidth);
+            const highlightWidth = (seg.endInItem - seg.startInItem) * charWidth;
+
+            // Padding scales with character count
+            const charCount = seg.endInItem - seg.startInItem;
+            const padX = charCount * 3;
+            const padY = charCount * 1.5;
+
+            // Create highlight rectangle
+            const rect = document.createElement('div');
+            rect.className = 'highlight-rect';
+            rect.style.left = `${startX - padX}px`;
+            rect.style.top = `${tx[5] - fontHeight - padY}px`;
+            rect.style.width = `${highlightWidth + padX * 2}px`;
+            rect.style.height = `${fontHeight + padY * 2}px`;
+
+            highlightLayer.appendChild(rect);
+          }
+
+          resultMessage += `✓ Found match on page ${foundPage}!\n`;
+          resultMessage += `Query: "${query}"\n`;
+          resultMessage += `Matched: "${match.matchedText}"\n`;
+          resultMessage += `Segments: ${segments.length} text item(s)`;
+
+          showResult(resultMessage, 'success');
+        } else {
+          resultMessage += `✗ No match found for "${query}" in ${pdfDoc.numPages} pages`;
+          showResult(resultMessage, 'error');
+        }
+      } catch (err) {
+        console.error('Search error:', err);
+        showResult(`Search error: ${err.message}`, 'error');
+      }
+    }
+
+    // Clear highlights
+    function clearHighlights() {
+      highlightLayer.innerHTML = '';
+      showResult('Highlights cleared', 'info');
+    }
+
+    // Event listeners
+    pdfFileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        loadPDFFromFile(file);
+      }
+    });
+
+    loadSampleBtn.addEventListener('click', () => {
+      loadPDF('https://raw.githubusercontent.com/nickmomrik/pdf.js/master/web/compressed.tracemonkey-pldi-09.pdf', 'Sample PDF (TracerMonkey)');
+    });
+
+    searchBtn.addEventListener('click', performSearch);
+
+    searchInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        performSearch();
+      }
+    });
+
+    clearBtn.addEventListener('click', clearHighlights);
+
+    debugCheckbox.addEventListener('change', (e) => {
+      document.body.classList.toggle('debug-mode', e.target.checked);
+    });
+
+    prevPageBtn.addEventListener('click', () => {
+      if (currentPage > 1) {
+        renderPage(currentPage - 1);
+      }
+    });
+
+    nextPageBtn.addEventListener('click', () => {
+      if (pdfDoc && currentPage < pdfDoc.numPages) {
+        renderPage(currentPage + 1);
+      }
+    });
+
+    // Test case clicks
+    document.querySelectorAll('.test-case').forEach(el => {
+      el.addEventListener('click', () => {
+        searchInput.value = el.dataset.query;
+        if (pdfDoc) {
+          performSearch();
+        }
+      });
+    });
+
+    // Initial state
+    showResult('Load a PDF file to begin searching.', 'info');
+  </script>
+</body>
+</html>
